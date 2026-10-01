@@ -1,0 +1,65 @@
+# QuePhoto Java：7 天实战教程
+
+这套教程把原来的 7 天任务拆成每天一份文件。目标是让你一边理解 Java，一边完成能在服务器维护真实摄影内容的后端；已上线小程序暂不改，后续按固定 API 接入。
+
+**从 Day 1 开始，连续修改同一个工程。** 不要每天另建项目，也不要一次复制所有代码之后再统一启动。
+
+## 每天读哪份文件
+
+| 天 | 教程 | 当天完成的开发任务 | 学习重点 |
+|---|---|---|---|
+| 1 | [Java 入门与第一个接口](D:/Project/QuePhoto_java/Plan/7天实战教程/Day01_Java入门与第一个接口.md) | 工程、DTO、HTTP 接口、构建 JAR、环境准备 | 类、集合、record、Maven、请求/响应 |
+| 2 | [数据库建模与公开查询](D:/Project/QuePhoto_java/Plan/7天实战教程/Day02_数据库建模与公开查询.md) | 五表迁移、分页、详情、标签树 | SQL、约束、Mapper、Service、DTO、null |
+| 3 | [管理员认证与草稿管理](D:/Project/QuePhoto_java/Plan/7天实战教程/Day03_管理员认证与草稿管理.md) | 登录、JWT、后台查询、草稿创建/编辑 | 依赖注入、认证/授权、参数校验、异常 |
+| 4 | [图片导入与作品发布](D:/Project/QuePhoto_java/Plan/7天实战教程/Day04_图片导入与作品发布.md) | 真实图片登记、封面/标签/排序、发布与下架 | SDK、资源释放、事务、锁、幂等 |
+| 5 | [接口契约与关键测试](D:/Project/QuePhoto_java/Plan/7天实战教程/Day05_接口契约与关键测试.md) | OpenAPI、请求集合、隔离数据库测试 | 测试边界、真实鉴权验证、失败路径 |
+| 6 | [服务器部署与备份恢复](D:/Project/QuePhoto_java/Plan/7天实战教程/Day06_服务器部署与备份恢复.md) | Docker、Nginx、SSH/HTTPS、备份和恢复 | 配置、镜像/容器/数据卷、网络与日志 |
+| 7 | [上线验收与独立维护](D:/Project/QuePhoto_java/Plan/7天实战教程/Day07_上线验收与独立维护.md) | 三套真实内容、回滚、操作手册 | 独立修改、故障定位、运维与学习复盘 |
+
+## 怎样用，才能既学会又做完
+
+每一节按这个顺序执行：
+
+1. 先读“要做什么/为什么”，用自己的话说出输入、输出和规则。
+2. 找到给出的具体文件，只改当前这一步。完整示例可以先运行；局部片段要按说明补入已有类。
+3. 执行验证命令，比较状态码、JSON、数据库记录或退出码；记录实际结果。
+4. 故意构造一个失败输入，确认系统拒绝它且数据未变。
+5. 做当天闭卷练习，再看提示。讲不清的内容记入学习清单。
+
+文档较长，是因为包含可查阅的代码、SQL、配置和排错材料；不要求逐段背诵。先跑通主线，再回到不理解的段落。**完整 P0 仍按 28 小时挑战目标安排**，不是近零基础 21 小时内必然完成的承诺。只有 3 小时的当天如实记录未完成项；依赖项不通过就不要跳到下一天。
+
+请明确区分三种内容：
+
+- **完整文件/完整模板**：能按给出的路径保存，但仍依赖前置环境和已有项目。
+- **局部示例**：只展示一个方法、依赖或算法，需要保留已有代码并补齐类型/构造器/import。
+- **预期结果**：是你实施时应验证的目标，不是本次已经执行成功的证明。
+
+当前已在项目根目录导入 Spring Boot 基础工程，并将原来的练习代码保存在 practice。后续接口、数据库迁移、上传和部署等任务仍需按教程完成；教程中的代码片段尚未作为完整业务应用编译联调。实现时每完成一小步就构建验证，不能把教程当作已经验收的软件包。
+
+## 跨天固定约定
+
+| 项目 | 约定 |
+|---|---|
+| 本地代码根 | `D:\Project\QuePhoto_java`，已导入 Spring Boot 基础工程 |
+| Java 根包 | `com.quephoto`；普通同步 Spring MVC |
+| 版本 | Java 21、Boot 4.0.x、MyBatis Starter 4.0.x、MySQL 8.4；D1/D2 固定实际版本 |
+| 构建产物 | `D:\Project\QuePhoto_java\target\quephoto.jar` |
+| 数据库 | 本地开发 `quephoto_dev`；测试 `quephoto_test`；服务器 `quephoto`；恢复演练 `quephoto_restore` |
+| 入口 | D1 `/api/hello` 为练习；D3 移出公开白名单，D5 移除；P0 业务接口共 12 个 |
+| 数据层 | 可变 `PortfolioRow` 等 Bean；数据库枚举用小写 String；Service 显式转换业务 enum |
+| 返回层 | DTO/record；分页统一 `items/page/pageSize/totalCount`；公开不返回 objectKey 字段 |
+| 配置 | 本地环境变量映射到 Spring property；生产 configtree 读取秘密文件；SDK 不直接绕过 Spring 读环境 |
+| 时间 | 拍摄时间用 LocalDateTime + 精度；审计值数据库按 UTC，输出时转 Instant |
+| 图片 | P0 控制台上传+离线清单导入；无任意 Key HTTP 登记、无物理删除 |
+| 发布 | 默认 draft；合法 work 封面才能 published；公开元数据只含 published |
+| 前端 | 不在本周实现；新后端状态不会自动同步到旧小程序 |
+
+环境分工也是学习内容：Windows PowerShell 用于本地构建和 HTTP 请求；Linux Bash 用于服务器 Docker/备份操作。每篇都会标明执行位置，不能混用续行、变量和重定向语法。
+
+## 原计划和查阅资料
+
+- [7 天 MVP 总计划](D:/Project/QuePhoto_java/Plan/QuePhoto_Java_7天MVP计划书.md)：为什么选这个范围，以及工期取舍。
+- [数据库与 API 实施基线](D:/Project/QuePhoto_java/Plan/QuePhoto_Java_数据库与API实施基线.md)：业务规则与原设计的冲突处理。
+- [每日任务与验收总表](D:/Project/QuePhoto_java/Plan/QuePhoto_Java_每日任务与上线验收.md)：全周进度和最终验收编号。
+
+教程细化了原基线中未固定的实现细节，例如各 PUT 的返回体、配置文件名和测试入口；以各天说明保持一致。如果实施时发现必须变更契约，先同步教程、OpenAPI 和测试，不只改某一个调用处。
