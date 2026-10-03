@@ -216,7 +216,6 @@ public record HelloResponse(String application, String message) {
 ```java
 package com.quephoto.common;
 
-import com.quephoto.common.dto.HelloResponse;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;

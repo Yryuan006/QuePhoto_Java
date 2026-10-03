@@ -45,4 +45,58 @@
         WHERE pt.portfolio_id = #{portfolioId}
         ORDER BY g.sort_order, g.id, t.sort_order, t.id
     </select>
+    <!-- 管理列表共用的状态过滤条件 -->
+    <sql id="adminFilter">
+        <if test="status != null">
+            AND p.status = #{status}
+        </if>
+    </sql>
+
+    <!-- 管理列表总数量 -->
+    <select id="countAdmin" resultType="long">
+        SELECT COUNT(*)
+        FROM portfolio p
+        <where>
+            <include refid="adminFilter"/>
+        </where>
+    </select>
+
+    <!-- 管理列表当前页 -->
+    <select id="findAdminPage"
+            resultType="com.quephoto.portfolio.PortfolioRow">
+        SELECT
+        p.id,
+        p.title,
+        p.status,
+        p.location,
+        p.shot_at,
+        p.shot_time_precision,
+        p.created_at,
+        p.updated_at,
+        ci.object_key AS cover_object_key
+        FROM portfolio p
+        LEFT JOIN portfolio_image ci ON ci.id = p.cover_image_id
+        <where>
+            <include refid="adminFilter"/>
+        </where>
+        ORDER BY (p.shot_at IS NULL) ASC, p.shot_at DESC, p.id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+    <insert id="insertDraft"
+            parameterType="com.quephoto.portfolio.PortfolioRow"
+            useGeneratedKeys="true"
+            keyProperty="id">
+        INSERT INTO portfolio (
+        title, description, location,
+        shot_at, shot_time_precision,
+        status, cover_image_id, share_image_key,
+        created_at, updated_at
+        )
+        VALUES (
+        #{title}, #{description}, #{location},
+        #{shotAt}, #{shotTimePrecision},
+        'draft', NULL, NULL,
+        #{createdAt}, #{updatedAt}
+        )
+    </insert>
 </mapper>

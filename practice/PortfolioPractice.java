@@ -6,12 +6,15 @@ public class PortfolioPractice {
         List<Work> works = new ArrayList<>();
         works.add(new Work("城市雨夜", "上海"));
         works.add(new Work("山间清晨", "杭州"));
-
+        works.add(new Work("1234", "杭州"));
+        int count = 0;
         for (Work work : works){
-            if ("上海".equals(work.getLocation())) {
+            count++;
+            if ("杭州".equals(work.getLocation())) {
                 System.out.println(work.getTitle());
             }
         }
+        System.out.println(count);
     }
 }
 

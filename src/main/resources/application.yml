@@ -7,6 +7,9 @@ spring:
   flyway:
     locations: classpath:db/migration
     clean-disabled: true
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: true
 
 server:
   address: 127.0.0.1

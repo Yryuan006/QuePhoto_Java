@@ -24,4 +24,16 @@ public interface PortfolioMapper {
 
     /** 联查标签和组名，返回 PortfolioTagRow 投影。 */
     List<PortfolioTagRow> findTags(@Param("portfolioId") long portfolioId);
+
+    /** 统计管理列表中的作品；status 为 null 时查询所有状态。 */
+    long countAdmin(@Param("status") String status);
+
+    /** 分页查询管理列表，包含草稿。 */
+    List<PortfolioRow> findAdminPage(
+            @Param("status") String status,
+            @Param("limit") int limit,
+            @Param("offset") long offset
+    );
+
+    int insertDraft(PortfolioRow row);
 }

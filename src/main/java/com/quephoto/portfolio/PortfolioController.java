@@ -28,4 +28,6 @@ public class PortfolioController {
                                              @Min(1) @Max(9007199254740991L) long id) {
         return service.publicDetail(id);
     }
+
+
 }

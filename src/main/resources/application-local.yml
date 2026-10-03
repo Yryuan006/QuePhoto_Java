@@ -6,3 +6,12 @@ spring:
 
 oss:
   base-url: ${OSS_BASE_URL:https://images.example.invalid}
+
+admin:
+  username: ${ADMIN_USERNAME}
+  password-hash: ${ADMIN_PASSWORD_HASH}
+
+jwt:
+  secret: ${JWT_SECRET}
+  issuer: ${JWT_ISSUER:quephoto}
+  audience: ${JWT_AUDIENCE:quephoto-admin}

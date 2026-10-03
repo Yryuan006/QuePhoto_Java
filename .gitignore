@@ -42,6 +42,7 @@ HELP.md
 .build-cache/
 
 ### Local secrets / runtime ###
+.local/
 .env
 .env.*
 *.log
