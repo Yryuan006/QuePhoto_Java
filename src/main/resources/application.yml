@@ -1,7 +1,18 @@
 spring:
   application:
     name: quephoto
+  sql:
+    init:
+      mode: never
+  flyway:
+    locations: classpath:db/migration
+    clean-disabled: true
 
 server:
   address: 127.0.0.1
   port: 8080
+
+mybatis:
+  mapper-locations: classpath*:mapper/*.xml
+  configuration:
+    map-underscore-to-camel-case: true

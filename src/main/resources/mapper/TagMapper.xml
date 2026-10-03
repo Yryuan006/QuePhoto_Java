@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.quephoto.tag.TagMapper">
+    <select id="findGroups" resultType="com.quephoto.tag.TagGroupRow">
+        SELECT id, name, sort_order FROM tag_group ORDER BY sort_order, id
+    </select>
+    <select id="findAllTags" resultType="com.quephoto.tag.TagRow">
+        SELECT id, group_id, name, sort_order FROM tag ORDER BY sort_order, id
+    </select>
+</mapper>

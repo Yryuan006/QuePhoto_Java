@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.quephoto.portfolio.PortfolioMapper">
+    <sql id="publishedFilter">
+        p.status = 'published'
+        <if test="tagId != null">
+            AND EXISTS (
+            SELECT 1 FROM portfolio_tag pt
+            WHERE pt.portfolio_id = p.id AND pt.tag_id = #{tagId}
+            )
+        </if>
+    </sql>
+    <select id="countPublished" resultType="long">
+        SELECT COUNT(*) FROM portfolio p
+        WHERE <include refid="publishedFilter"/>
+    </select>
+    <select id="findPublishedPage" resultType="com.quephoto.portfolio.PortfolioRow">
+        SELECT p.id, p.title, p.location, p.shot_at, p.shot_time_precision,
+        ci.object_key AS cover_object_key
+        FROM portfolio p
+        LEFT JOIN portfolio_image ci ON ci.id = p.cover_image_id
+        WHERE <include refid="publishedFilter"/>
+        ORDER BY (p.shot_at IS NULL) ASC, p.shot_at DESC, p.id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+    <select id="findPublishedById" resultType="com.quephoto.portfolio.PortfolioRow">
+        SELECT p.id, p.title, p.description, p.location, p.shot_at,
+        p.shot_time_precision, ci.object_key AS cover_object_key
+        FROM portfolio p
+        LEFT JOIN portfolio_image ci ON ci.id = p.cover_image_id
+        WHERE p.id = #{id} AND p.status = 'published'
+    </select>
+    <select id="findImages" resultType="com.quephoto.portfolio.PortfolioImageRow">
+        SELECT id, portfolio_id, image_type, object_key, sort_order, width, height
+        FROM portfolio_image WHERE portfolio_id = #{portfolioId}
+        ORDER BY CASE image_type WHEN 'work' THEN 0 ELSE 1 END, sort_order, id
+    </select>
+    <select id="findTags" resultType="com.quephoto.portfolio.PortfolioTagRow">
+        SELECT g.id AS group_id, g.name AS group_name,
+        t.id AS tag_id, t.name AS tag_name
+        FROM portfolio_tag pt
+        JOIN tag t ON t.id = pt.tag_id AND t.group_id = pt.tag_group_id
+        JOIN tag_group g ON g.id = t.group_id
+        WHERE pt.portfolio_id = #{portfolioId}
+        ORDER BY g.sort_order, g.id, t.sort_order, t.id
+    </select>
+</mapper>

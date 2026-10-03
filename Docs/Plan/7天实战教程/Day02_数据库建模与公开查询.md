@@ -656,7 +656,7 @@ public List<Group> tree() {
 
 `computeIfAbsent` 表示“这组还没有列表就创建一个，再把标签加进去”。它不是数据库调用。组顺序由第一个查询决定，组内标签的相对顺序来自第二个查询；HashMap 的遍历顺序没有参与输出，所以不会打乱排序。
 
-最后按 `PortfolioController` 的结构创建 `TagController`：构造器注入 `TagService`，`@RequestMapping("/api/tag-groups")`，一个 `@GetMapping public List<Group> tree() { return service.tree(); }`。请求空库应得到 `[]`。
+最后按 `PortfolioController` 的结构创建 `TagController`：构造器注入 `TagController`，`@RequestMapping("/api/tag-groups")`，一个 `@GetMapping public List<Group> tree() { return service.tree(); }`。请求空库应得到 `[]`。
 
 观察 SQL 日志时，一次标签树请求应是两条 SELECT，不是每个组再发一条查询。不要为这点数据引入缓存。
 
