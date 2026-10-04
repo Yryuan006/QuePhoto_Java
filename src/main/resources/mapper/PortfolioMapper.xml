@@ -99,4 +99,44 @@
         #{createdAt}, #{updatedAt}
         )
     </insert>
+
+    <select id="findByIdForUpdate"
+            resultType="com.quephoto.portfolio.PortfolioRow">
+        SELECT id, status, cover_image_id
+        FROM portfolio
+        WHERE id = #{id}
+        FOR UPDATE
+    </select>
+
+    <select id="findImageByObjectKey"
+            resultType="com.quephoto.portfolio.PortfolioImageRow">
+        SELECT id, portfolio_id, image_type, object_key,
+        sort_order, width, height, created_at
+        FROM portfolio_image
+        WHERE object_key = #{objectKey}
+    </select>
+
+    <select id="findImageById"
+            resultType="com.quephoto.portfolio.PortfolioImageRow">
+        SELECT id, portfolio_id, image_type, object_key,
+        sort_order, width, height, created_at
+        FROM portfolio_image
+        WHERE id = #{id}
+    </select>
+
+    <insert id="insertImage" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO portfolio_image (
+        portfolio_id, image_type, object_key,
+        sort_order, width, height, created_at
+        ) VALUES (
+        #{portfolioId}, #{imageType}, #{objectKey},
+        #{sortOrder}, #{width}, #{height}, #{createdAt}
+        )
+    </insert>
+
+    <update id="setCover">
+        UPDATE portfolio
+        SET cover_image_id = #{imageId}, updated_at = #{updatedAt}
+        WHERE id = #{portfolioId}
+    </update>
 </mapper>

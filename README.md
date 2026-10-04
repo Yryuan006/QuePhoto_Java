@@ -11,13 +11,13 @@
 - `practice/`：原来的普通 Java 练习，不参与 Maven 构建。
 - `Docs/Plan/`：学习计划与七天实战教程。
 
-当前仅完成工程骨架导入，Day 1 的 Controller 和 DTO 仍需按教程编写。
+项目正在按七天教程开发，当前包含公开查询和管理员认证等模块；各项功能以实际实现与验收记录为准。
 
 ## 在 IDEA 中打开
 
 打开根目录的 `pom.xml`，选择作为项目打开并等待 Maven 同步。若已经打开本目录，可右键 `pom.xml` 选择 **Add as Maven Project（添加为 Maven 项目）**；已经识别为 Maven 时，点击 Maven 工具窗口的重新加载按钮。Project SDK 和 Maven Runner JRE 使用 JDK 21。
 
-运行 `com.quephoto.QuePhotoApplication` 启动服务。现有 `Main` 和 `PortfolioPractice` 运行配置属于之前的练习，服务使用新的启动类。
+服务入口是 `com.quephoto.QuePhotoApplication`。本地开发推荐使用下面的启动脚本准备配置；直接在 IDEA 中运行入口类需要另外设置 `local` profile 和所需环境变量。现有 `Main` 和 `PortfolioPractice` 运行配置属于之前的练习。
 
 ## 构建和运行
 
@@ -28,13 +28,13 @@
 java -jar .\target\quephoto.jar
 ```
 
-也可以在开发期间运行：
+本地开发启动（首次交互配置，之后自动加载加密凭据）：
 
 ```powershell
-.\mvnw.cmd spring-boot:run
+.\start-local.cmd
 ```
 
-默认端口为 `8080`。当前尚未编写接口，访问 `/` 返回 404 属于预期行为。终端按 `Ctrl+C` 停止服务。
+默认地址为 `http://127.0.0.1:8080`。终端按 `Ctrl+C` 停止服务。修改保存的配置可运行 `.\start-local.cmd -Configure`；变量清单、存储方式和更多命令见 [Windows 本地启动](Docs/local-startup.md)。直接运行 JAR 时同样需要自行提供配置和 profile。
 
 普通 Java 练习可以单独运行：
 

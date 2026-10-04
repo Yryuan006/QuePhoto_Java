@@ -4,6 +4,63 @@
 
 目标时间为 4 小时：准备与学习 30 分钟、打包和部署 100 分钟、真实访问和导入 30 分钟、备份恢复 50 分钟、缓冲 30 分钟。首次配置服务器很容易超时，4 小时是挑战目标；只有 3 小时时，保留恢复验收，将剩余内容顺延。不要省掉恢复来制造“上线完成”。
 
+## 0. 今天的任务不是一句“部署到服务器”：按文件逐个完成
+
+**本篇是待你执行的部署学习任务。文中的配置、命令和预期结果都是操作说明，不表示已替你创建服务器、修改配置或执行部署。** 每到一个检查点，亲自记录结果后再继续。
+
+今天主要写配置和Shell命令。Java业务逻辑应先通过 Day05 的测试；如果今天还在改发布规则，先完成本地验证再构建发布包。
+
+### 0.1 先分清本机和服务器各放什么
+
+| 在哪里写 | 文件 | 这份文件解决什么问题 | 对应正文 |
+|---|---|---|---|
+| Windows项目 | `src/main/resources/application-prod.yml` | 容器中怎样连MySQL、从哪里读秘密 | 第4.1节 |
+| Windows项目 | `Dockerfile` | JAR怎样装进Java运行镜像 | 第4.2节 |
+| Windows项目 | `.dockerignore` | 哪些文件允许进入镜像构建上下文 | 第4.2节 |
+| Linux服务器 | `/opt/quephoto/app.env` | 数据库地址、OSS域名等普通配置 | 第5节 |
+| Linux服务器 | `/opt/quephoto/secrets/` 内的文件 | 数据库密码、JWT密钥、哈希、OSS凭据 | 第5节 |
+| Linux服务器 | `/opt/quephoto/.env` | 这次启动哪个应用镜像及固定基础镜像 | 第6节 |
+| Linux服务器 | `/opt/quephoto/compose.yaml` | MySQL、应用、Nginx怎样连起来 | 第6节 |
+| Linux服务器 | `/opt/quephoto/deploy/nginx.conf` | `/api/`请求转发给哪个应用 | 第6节 |
+| Linux服务器 | `/opt/quephoto/bin/backup.sh` | 怎样导出一份能校验的数据库备份 | 第9节 |
+
+前三个文件由你在IDE中创建，保存位置都相对项目根；服务器文件按正文的 `sudoedit` 命令编辑，不能误保存在Windows项目根后以为服务器已经更新。秘密文件仅存在受控位置，不写进任务记录。
+
+### 0.2 按五个检查点推进
+
+1. **本地可构建：**测试数据库已配置，`./mvnw.cmd clean verify` 通过，`target/quephoto.jar` 存在。失败就在本机修复，不跳过测试发版。
+2. **配置可解释：**逐行读完prod配置、Dockerfile和Compose，能说出DB_URL中的 `db` 是哪个服务。
+3. **容器可查询：**按正文启动后，先看 `compose ps` 与app日志，再请求公开列表。端口监听不等于SQL查询成功。
+4. **内容可维护：**SSH隧道中登录，用一个真实作品完成导入和发布；这一步复用 Day04 的代码和 Day05 的请求。
+5. **数据可恢复：**产生备份，恢复到 `quephoto_restore`，查数据和公开接口；最后才记录“恢复演练完成”。
+
+任何一步卡住，记录“执行位置、完整命令（去凭据）、期望、第一条错误”。例如 `Connection refused` 先检查地址和端口，不能通过随意改密码来解决。
+
+### 0.3 读懂配置中的几个关键值
+
+```yaml
+# 这个片段只是说明含义；完整application-prod.yml见第4.1节。
+server:
+  address: 0.0.0.0
+spring:
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+```
+
+`0.0.0.0` 让容器内其他服务能连到Java；应用公网是否可访问取决于Compose端口映射。`${DB_URL}` 是运行时替换，不是写进Java代码的常量。容器里的 `localhost` 指容器自己，因此数据库地址用服务名 `db`。
+
+```yaml
+# 这个片段位于Compose的nginx服务下；完整层级见第6节。
+ports:
+  - "127.0.0.1:18080:80"
+```
+
+从右往左读：Nginx容器监听80，服务器把它映射到自己的18080，并只绑定服务器回环地址。Windows上的18080来自你另建的SSH隧道。不要把这条映射照搬给MySQL或Java服务。
+
+**配置文件写完怎么检查：**YAML用空格缩进，同一层的键对齐；合并配置时不新增第二个 `spring:` 或 `oss:`。服务器上先执行 `sudo docker compose config --quiet`，只有退出0才继续启动。不要把带秘密的完整展开配置贴进验收文档。
+
+
 ## 1. 开始前：确认今天不是重新开发业务
 
 先检查 Day 05 的验收记录。以下条件缺一项，就先修复该项，再继续部署：
@@ -464,6 +521,36 @@ ssh -N -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -L 18080:127.0.0.1:
 
 确认隔离：服务器 `sudo ss -lntp` 应看到 SSH 和 `127.0.0.1:18080`，不应看到公网 `3306` 或 `8080`。Windows 用 `Test-NetConnection $ServerAddress -Port 18080`、`-Port 3306`、`-Port 8080` 验证直连失败；必要时从另一网络复查。HTTPS 尚未就绪时，这叫“服务器上可安全运营的后端”，不叫“公网 API 已开放”。
 
+### 7.1 把“服务起来了”拆成三条请求
+
+执行位置：**Windows PowerShell，已建立SSH隧道的另一个窗口**。先读命令再执行，`18080` 与本机开发时的 `8080` 是两套访问入口。
+
+```powershell
+$baseUrl = 'http://127.0.0.1:18080'
+$page = Invoke-RestMethod "$baseUrl/api/portfolios?page=1&pageSize=20"
+$page | Select-Object page, pageSize, totalCount
+$page.items | Select-Object id, title, coverImageUrl
+```
+
+预期是分页对象。第一次空库 `totalCount=0` 可以成立；返回HTML、502或连接失败都不等于“只是没有作品”。此请求能进入公开Controller并查询数据库。
+
+接着检查无令牌的管理请求确实是401：
+
+```powershell
+try {
+    Invoke-WebRequest "$baseUrl/api/admin/portfolios" -UseBasicParsing | Out-Null
+    throw '管理接口未拒绝匿名请求'
+} catch {
+    if ($null -eq $_.Exception.Response -or [int]$_.Exception.Response.StatusCode -ne 401) { throw }
+    '通过：匿名管理请求返回401'
+}
+```
+
+最后按 Day05 的登录请求取得真实token，再调用同一个管理接口应200。这样同时证明“未登录会拒绝”和“正确管理员能用”。不要把token写进证据；记录状态码和作品数量即可。
+
+如果第一条成功而登录失败：检查管理员用户名、哈希来源、JWT配置和限流，不要先改Nginx的公开路由。SSH隧道中的登录可能共用同一个来源；多次错误请求后先等限流窗口结束。
+
+
 ## 8. 在生产使用同一个导入器（10 分钟）
 
 通过管理 API 创建真实草稿，使用**服务器返回的新 ID**准备清单，不能把本地作品 ID 直接搬过来。计划清单格式沿用 Day 04，上传到 SSH 用户目录，再由本人检查目标作品、真实 Key、封面、类型。
@@ -594,6 +681,50 @@ sudo docker stop quephoto-restore-check
 临时容器和演练库先保留给 Day 07 检查，后续清理要明确对象；本教程没有任何删除生产卷的命令。恢复容器仍占用名称，若需重做，应先审阅其状态并使用新的明确名称。
 
 将备份另存到服务器外：先在服务器把选中的备份复制到本人 SSH 用户目录并设为 `600`，再通过 `scp` 下载到开发机的受控目录，例如 `D:\QuePhotoPrivateBackups`。这不是 Git 项目目录，不要把数据库备份纳入仓库。下载后用 `Get-FileHash -Algorithm SHA256` 对比服务器校验值，再清理传输用副本。异地副本应存于本人有权限且磁盘受保护的位置。
+
+### 10.1 恢复之后，你具体要查什么
+
+在 MySQL 客户端**选择演练库**后运行以下只读SQL；不要把建库、导入SQL和查询混成一个不检查错误的大脚本。
+
+```sql
+SELECT DATABASE();
+SELECT COUNT(*) AS portfolios FROM portfolio;
+SELECT COUNT(*) AS images FROM portfolio_image;
+SELECT COUNT(*) AS tag_groups FROM tag_group;
+SELECT COUNT(*) AS tags FROM tag;
+SELECT COUNT(*) AS links FROM portfolio_tag;
+
+-- 查所有“已发布但没有合法封面”的作品，预期0行。
+SELECT p.id, p.title, p.cover_image_id
+FROM portfolio p
+LEFT JOIN portfolio_image i ON i.id = p.cover_image_id
+WHERE p.status = 'published'
+  AND (i.id IS NULL OR i.portfolio_id <> p.id OR i.image_type <> 'work');
+
+SELECT version, success FROM flyway_schema_history ORDER BY installed_rank;
+```
+
+第一行必须是 `quephoto_restore`（或本次明确选定的新演练库名）。比较数量时用**备份时记录的值**；如果生产后来又添加了作品，不能要求当前生产数量与旧备份相等。上面的LEFT JOIN还能发现已发布作品没有封面的情况，不能仅查INNER JOIN后断言完整性。
+
+逐条解释第9节备份脚本：`set -euo pipefail` 使常见失败和管道失败及时暴露；`umask 077` 限制新备份权限；`--single-transaction` 为InnoDB导出建立一致性视图；`.partial` 表示压缩文件未完成；`gzip -t` 检查压缩结构；最后重命名和写SHA256。**这些都不能代替实际恢复。**
+
+你今天需填写的记录模板：
+
+```text
+备份时间（注明时区）：
+备份文件名 / 大小 / SHA256：
+备份时作品数 / 图片数 / 标签组数 / 标签数 / 关联数：
+恢复库名：
+恢复开始 / 结束 / 耗时：
+恢复后数量与封面检查：
+恢复应用公开列表 / 详情状态码：
+一张真实OSS图片是否能访问：
+服务器外副本位置及SHA256比较：
+失败或未做的项目：
+```
+
+数据库恢复不会恢复被删除的OSS对象，图片可读也不能证明数据库恢复成功，两部分分别记录。完成此表再进入 Day07 的上线验收。
+
 
 ## 11. 重启证明持久化（5 分钟）
 

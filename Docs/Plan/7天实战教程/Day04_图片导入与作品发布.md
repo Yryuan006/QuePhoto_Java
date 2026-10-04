@@ -4,6 +4,60 @@
 
 本文只指导你实现代码；当前 Markdown 中的示例不是已经可运行的功能。所有“局部”片段需要按步骤补充构造器、类型和现有项目异常类。项目根固定为 `D:\Project\QuePhoto_java`，包为 `com.quephoto`，依赖继续沿用 Java 21 / Boot 4.0.x / MyBatis 4.0.x / MySQL 8.4。
 
+## 0. 今天从哪里开始：按“文件 → 方法 → 验证”动手
+
+**2026-10-04 补充：下面是给你自己实施的任务说明。代码块是教学参考，不代表源码已经修改、功能已经完成。** 建议一次只做下面一行，验证通过再做下一行。
+
+对当前工程的检查显示：`ImportManifest`、OSS 配置和 HEAD 核验类已写入工程；`ImageImportCoordinator` 正在写校验；管理员列表和创建草稿已有代码，管理详情与编辑方法仍需补齐。这里描述文件内容，不代替运行验收。
+
+| 顺序 | 打开/新建什么 | 具体写什么 | 停下来检查什么 |
+|---|---|---|---|
+| A | `importing/ImageImportCoordinator.java` | 先只写 `validateManifest`：基础字段、宽高、重复Key、前缀、封面 | 手工走两个图片的例子；封面在第2张也能通过 |
+| B | `portfolio/PortfolioMapper.java` 与 `resources/mapper/PortfolioMapper.xml` | 增加锁作品、按Key查图片、插图、查图片、改封面的方法及SQL | 方法名等于XML的id，参数名一致 |
+| C | 新建 `importing/ImageImportService.java` | 在一个事务中锁作品、判断draft、复用或插入、最后设置封面 | 抛异常会离开方法；没有catch后继续成功的路径 |
+| D | 回到 Coordinator | 构造器注入核验器和Service；增加“校验→所有HEAD→事务方法”的调用 | HEAD循环结束后才能开始事务 |
+| E | 新建 `importing/ImportRunner.java`，修改启动类 | 读JSON、调用Coordinator、输出摘要、保存退出码、关闭上下文 | 打包后命令执行一次即退出 |
+| F | DTO、PortfolioService、AdminPortfolioController | 补管理详情/编辑，再写封面、图片、标签、发布规则 | 先带token查到管理详情，再测试修改 |
+| G | `.local/import-images.json` 和HTTP请求 | 用真实图片导入、发布、下架，记录失败输入 | 状态码、图片数量、封面ID和公开可见性都符合预期 |
+
+表里的 Java 相对路径以 `src/main/java/com/quephoto/` 为起点；`resources/` 以 `src/main/` 为起点。**今天继续修改同一个工程，不新建第二个 Spring Boot 项目。**
+
+读代码时先回答三个问题：这个方法接收什么？成功返回什么？在哪些条件下抛异常？暂时不熟的语法在下面逐项解释。每组相互依赖的类补齐后，在项目根 PowerShell 执行 `./mvnw.cmd -DskipTests compile`，看到 `BUILD SUCCESS` 再进入下一组；编译通过还不代表SQL或真实OSS已验证。
+
+### 0.1 先分清一次导入中谁负责什么
+
+```text
+JSON文件 → Runner读成ImportManifest
+         → Coordinator检查输入、逐张HEAD
+         → Service开启事务
+         → Mapper执行SQL
+         → MySQL提交成功
+         → Runner输出摘要并退出
+```
+
+`Controller` 是 HTTP 入口，`Runner` 是命令入口，两者都应调用业务方法。`Row` 是数据库查询结果；`DTO/record` 是输入或输出结构；不要因为都含有图片字段就混用。
+
+### 0.2 第3天的缺项怎样接到今天
+
+如果 `/api/admin/portfolios/{id}` 尚未实现，先按 Day03 的管理详情部分补齐，再进行本篇第7节。至少要有：
+
+1. Mapper 按ID读取作品，包含 `status/coverImageId/createdAt/updatedAt`，并取得封面Key。
+2. Service 查图片和标签，构造**管理员详情DTO**；作品不存在时抛404。
+3. Controller 增加 `@GetMapping("/{id}")`，调用Service。
+4. 同一路径增加元数据PUT，先锁作品，完整替换六个可编辑字段；本篇第7节再加入发布条件。
+
+不要看到404就立即改数据库：先分清是路由尚未写、运行的是旧代码，还是该ID的作品确实不存在。
+
+### 0.3 本文的代码怎么粘贴
+
+- **完整文件**：按给出的package和类名新建文件，包含import、构造器、方法。
+- **类内片段**：放到类的最后一个 `}` 之前，与其他方法平级；不要塞进另一个方法。
+- **方法替换**：替换原同名方法，避免两个相同签名的方法导致编译失败。
+- **XML片段**：放在现有 `<mapper>...</mapper>` 内，保留原查询语句，不另建第二个相同namespace的映射。
+
+本篇后续代码采用一组统一名称：`findByIdForUpdate`、`findImageByObjectKey`、`insertImage`、`findImageById`、`setCover`、`applyVerifiedManifest`。若你已采用其他名称，可以保留，但接口、SQL、调用处必须一起对应。
+
+
 ## 1. 前置条件、范围与时间
 
 先通过 Day 03：登录成功、后台受保护、草稿可创建/编辑、公开草稿返回 404。准备至少两张自己有权使用的真实图片、一套草稿 ID、本人确认的 OSS Bucket/region/图片域名。没有真实 OSS 凭据可以先写代码和隔离测试，但今天的真实图片闭环不能勾为完成。
@@ -115,6 +169,86 @@ public record ImportManifest(
 **为什么：**JSON 是输入，不是可信对象。静态校验先做能避免无意义网络请求；重复 Key 校验保证幂等语义可以清楚定义。
 
 **应看到的结果：**错误 JSON、重复 Key、跨前缀 Key、scene 封面清单都会在写库前失败；还没有任何 HTTP 图片登记 API。
+
+### 3.1 把“补业务校验”拆成具体代码
+
+**你要改的文件：**`src/main/java/com/quephoto/importing/ImageImportCoordinator.java`。当前类已有 `Validator validator` 和 `String allowPrefix` 两个字段。先保留构造器；用下面两个完整方法替换同名方法。需要的import：
+
+```java
+import java.util.HashSet;
+import java.util.stream.Collectors;
+```
+
+```java
+public void validateManifest(ImportManifest manifest) {
+    if (manifest == null) {
+        throw new IllegalArgumentException("清单不能为null");
+    }
+    var violations = validator.validate(manifest);
+    if (!violations.isEmpty()) {
+        String message = violations.stream()
+                .map(v -> v.getPropertyPath() + ": " + v.getMessage())
+                .sorted().collect(Collectors.joining("; "));
+        throw new IllegalArgumentException(message);
+    }
+
+    var seenKeys = new HashSet<String>();
+    ImportManifest.ImageItem coverItem = null;
+    for (var item : manifest.images()) {
+        validateObjectKey(item.objectKey(), "objectKey");
+        if (!"work".equals(item.imageType()) && !"scene".equals(item.imageType())) {
+            throw new IllegalArgumentException("imageType只允许work或scene");
+        }
+        Integer width = item.width();
+        Integer height = item.height();
+        if ((width == null) != (height == null)) {
+            throw new IllegalArgumentException("宽高必须同时为空或同时填写");
+        }
+        if (width != null && (width <= 0 || height <= 0)) {
+            throw new IllegalArgumentException("宽高必须为正整数");
+        }
+        if (!seenKeys.add(item.objectKey())) {
+            throw new IllegalArgumentException("清单中存在重复ObjectKey");
+        }
+        if (item.objectKey().equals(manifest.coverObjectKey())) {
+            coverItem = item;
+        }
+    }
+    // 注意：这部分在for循环外，否则第2张作为封面时会被提前拒绝。
+    validateObjectKey(manifest.coverObjectKey(), "coverObjectKey");
+    if (coverItem == null || !"work".equals(coverItem.imageType())) {
+        throw new IllegalArgumentException("封面必须是本清单的一张work图片");
+    }
+}
+
+private void validateObjectKey(String key, String field) {
+    if (key.matches("^[A-Za-z][A-Za-z0-9+.-]*:.*")
+            || key.startsWith("/") || key.contains("\\")
+            || key.codePoints().anyMatch(Character::isISOControl)
+            || !key.startsWith(allowPrefix)) {
+        throw new IllegalArgumentException(field + "格式或允许前缀不正确");
+    }
+    for (String segment : key.split("/", -1)) {
+        if (segment.equals(".") || segment.equals("..")) {
+            throw new IllegalArgumentException(field + "不能包含.或..路径段");
+        }
+    }
+}
+```
+
+**逐行理解这几个容易混淆的点：**
+
+| 写法 | 用普通话解释 | 例子 |
+|---|---|---|
+| `(width == null) != (height == null)` | 只有一个为空才报错 | null/null通过；800/null失败 |
+| `width != null && ...` | 已确认两个值同时存在后，才比较是否为正数 | 防止对null进行整数比较 |
+| `!seenKeys.add(key)` | 已经见过这个Key | 首次add返回true，再次返回false |
+| `coverItem = item` | 暂时记住找到的封面 | 不是立刻写数据库 |
+| 循环后才检查封面 | 看完所有图片再判断是否找到了 | 封面可以排在第2张 |
+| `throw` | 当前操作失败，停止继续执行 | 不能只打印错误然后继续HEAD |
+
+**亲手验证：**依次构造“宽高都null”“只有一个null”“两张重复Key”“封面在第2张”“photos/../a.jpg”五份输入。先预测通过或失败，再执行；第5天将把这些情况写成单元测试。不要用真实OSS来调试纯输入校验。
+
 
 ## 4. 第三步：用 OSS 官方 SDK 做只读 HEAD
 
@@ -246,7 +380,7 @@ public ImportResult applyVerifiedManifest(ImportManifest manifest) {
 
 `ImportResult` 可定义为 `record ImportResult(long portfolioId,int insertedCount,Map<String,Long> imageIds)`。`sameRegistration` 要比较 portfolioId、objectKey、imageType、sortOrder、width、height；nullable 字段使用 `Objects.equals`。相同 Key 同作品同属性复用；任一属性不同都报冲突，让操作者显式使用图片更新 API，不能把导入重试变成隐式修改。
 
-`toImageRow` 显式把 type 解析为业务 enum 再 `.value()` 存小写 String，设置 UTC createdAt。Key 在数据库唯一；并发插入冲突不要使用 `INSERT IGNORE`。让重复键异常传播出事务并回滚整个清单，CLI 报冲突，用户修正/重试即可。
+`toImageRow` 显式校验小写 work/scene 并存入 String，设置 UTC createdAt；本项目目前没有独立的图片类型枚举，下面给出匹配现有 Row 的实现。Key 在数据库唯一；并发插入冲突不要使用 `INSERT IGNORE`。让重复键异常传播出事务并回滚整个清单，CLI 报冲突，用户修正/重试即可。
 
 即便 Coordinator 已查过 draft，事务内也必须复核：HEAD 期间另一请求可能已发布。同一作品的元数据更新、封面变更、图片更新、标签替换、发布和导入，全部先 `SELECT ... FOR UPDATE` 锁同一 portfolio 行，后续再操作图片/标签，锁顺序保持一致。
 
@@ -255,6 +389,152 @@ public ImportResult applyVerifiedManifest(ImportManifest manifest) {
 **为什么：**锁保证“检查成立”和“写入完成”之间没有另一请求改坏前提；唯一键处理不同作品同时登记同一 Key。原子性保证不会留下一半图片、错误封面的数据库状态。
 
 **应看到的结果：**同清单第二次导入 insertedCount=0、图片 ID 一致；清单中一项属性冲突则整个事务回滚；导入不会自动把作品发布。
+
+### 5.1 先把Mapper的声明和SQL配成一对
+
+打开 `src/main/java/com/quephoto/portfolio/PortfolioMapper.java`，在接口内追加；已有同名方法时核对签名，不重复声明：
+
+```java
+PortfolioRow findByIdForUpdate(@Param("id") long id);
+PortfolioImageRow findImageByObjectKey(@Param("objectKey") String objectKey);
+PortfolioImageRow findImageById(@Param("id") long id);
+int insertImage(PortfolioImageRow row);
+int setCover(@Param("portfolioId") long portfolioId,
+             @Param("imageId") long imageId,
+             @Param("updatedAt") java.time.LocalDateTime updatedAt);
+```
+
+打开 `src/main/resources/mapper/PortfolioMapper.xml`，在 `</mapper>` 前追加以下完整SQL片段：
+
+```xml
+<select id="findByIdForUpdate" resultType="com.quephoto.portfolio.PortfolioRow">
+    SELECT * FROM portfolio WHERE id=#{id} FOR UPDATE
+</select>
+<select id="findImageByObjectKey" resultType="com.quephoto.portfolio.PortfolioImageRow">
+    SELECT * FROM portfolio_image WHERE object_key=#{objectKey}
+</select>
+<select id="findImageById" resultType="com.quephoto.portfolio.PortfolioImageRow">
+    SELECT * FROM portfolio_image WHERE id=#{id}
+</select>
+<insert id="insertImage" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO portfolio_image
+      (portfolio_id,image_type,object_key,sort_order,width,height,created_at)
+    VALUES
+      (#{portfolioId},#{imageType},#{objectKey},#{sortOrder},#{width},#{height},#{createdAt})
+</insert>
+<update id="setCover">
+    UPDATE portfolio SET cover_image_id=#{imageId},updated_at=#{updatedAt}
+    WHERE id=#{portfolioId}
+</update>
+```
+
+**为什么这样对应：**方法 `findImageById` 对应 `<select id="findImageById">`；`@Param("id")` 对应 `#{id}`；返回Row对应 `resultType`。`useGeneratedKeys` 将新图片ID写回 `row.id`，否则后面可能拿着null设置封面。
+
+`FOR UPDATE` 需要外层事务维持锁；离开事务就释放。先锁作品，再操作图片和标签，让同一作品的管理操作按相同顺序执行。
+
+### 5.2 把上面的事务片段补成完整类
+
+目标是你自己新建 `src/main/java/com/quephoto/importing/ImageImportService.java`。类壳如下，把上面的 `applyVerifiedManifest` 方法放在注释位置，再加入下面的辅助方法：
+
+```java
+package com.quephoto.importing;
+
+import com.quephoto.portfolio.PortfolioMapper;
+import com.quephoto.portfolio.PortfolioRow;
+import com.quephoto.portfolio.PortfolioImageRow;
+import org.springframework.stereotype.Service;
+import org.springframework.context.annotation.Profile;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.util.Map;
+import java.util.LinkedHashMap;
+import java.util.Objects;
+
+@Service
+@Profile("import")
+public class ImageImportService {
+    private final PortfolioMapper mapper;
+
+    public ImageImportService(PortfolioMapper mapper) { this.mapper = mapper; }
+
+    public record ImportResult(long portfolioId, int insertedCount, Map<String, Long> imageIds) {}
+
+    // 在这里放上面的完整applyVerifiedManifest方法。
+
+    private boolean sameRegistration(PortfolioImageRow row, ImportManifest.ImageItem item) {
+        return Objects.equals(row.getObjectKey(), item.objectKey())
+                && Objects.equals(row.getImageType(), item.imageType())
+                && Objects.equals(row.getSortOrder(), item.sortOrder())
+                && Objects.equals(row.getWidth(), item.width())
+                && Objects.equals(row.getHeight(), item.height());
+    }
+
+    private PortfolioImageRow toImageRow(long portfolioId, ImportManifest.ImageItem item) {
+        if (!"work".equals(item.imageType()) && !"scene".equals(item.imageType())) {
+            throw badRequest("imageType只允许work或scene");
+        }
+        var row = new PortfolioImageRow();
+        row.setPortfolioId(portfolioId);
+        row.setObjectKey(item.objectKey());
+        row.setImageType(item.imageType());
+        row.setSortOrder(item.sortOrder());
+        row.setWidth(item.width());
+        row.setHeight(item.height());
+        row.setCreatedAt(LocalDateTime.now(ZoneOffset.UTC));
+        return row;
+    }
+
+    private ResponseStatusException badRequest(String message) {
+        return new ResponseStatusException(HttpStatus.BAD_REQUEST, message);
+    }
+    private ResponseStatusException conflict(String message) {
+        return new ResponseStatusException(HttpStatus.CONFLICT, message);
+    }
+    private ResponseStatusException notFound(String message) {
+        return new ResponseStatusException(HttpStatus.NOT_FOUND, message);
+    }
+}
+```
+
+这里沿用项目已有的 `ResponseStatusException`，不需要再猜测 `conflict()` 是哪个库的方法。`Objects.equals` 可以比较两个null；作品归属在外层判断，剩余登记字段由 `sameRegistration` 比较。`toImageRow` 只是给Java对象赋值，执行 `mapper.insertImage(row)` 才真正写库。
+
+**检查点：**先完成类壳、事务方法、辅助方法和Mapper，再编译；这些是同一组依赖，不要为了暂时消除红线把方法改成固定返回true或null。
+
+### 5.3 回到Coordinator接好调用
+
+校验阶段完成后，给 `ImageImportCoordinator` 加 `@Service @Profile("import")`，把原构造器替换成下面的版本；类内保留第3节的两个校验方法。顶部补入 `OssImportProperties`、`OssObjectVerifier`、`Service`、`Profile` 的import：
+
+```java
+private final Validator validator;
+private final String allowPrefix;
+private final OssObjectVerifier verifier;
+private final ImageImportService importService;
+
+public ImageImportCoordinator(Validator validator, OssImportProperties properties,
+        OssObjectVerifier verifier, ImageImportService importService) {
+    this.validator = validator;
+    this.allowPrefix = properties.allowedPrefix();
+    this.verifier = verifier;
+    this.importService = importService;
+    if (allowPrefix == null || allowPrefix.isBlank() || !allowPrefix.endsWith("/")) {
+        throw new IllegalStateException("oss.allowed-prefix必须非空且以/结尾");
+    }
+}
+
+public ImageImportService.ImportResult run(ImportManifest manifest) {
+    validateManifest(manifest);
+    for (var item : manifest.images()) {
+        verifier.verify(item.objectKey());
+    }
+    return importService.applyVerifiedManifest(manifest);
+}
+```
+
+已有字段不要再声明一遍。构造器参数由Spring注入；不要保留一个无法自动注入普通String的旧构造器。`run` 本身不加事务，所有HEAD成功才进入另一个Bean的事务方法。
+
 
 ## 6. 第五步：让同一 JAR 以离线模式执行并退出
 
@@ -267,6 +547,100 @@ public ImportResult applyVerifiedManifest(ImportManifest manifest) {
 3. 检查文件大小，`try (InputStream input = Files.newInputStream(path))` 后调用 `jsonMapper.readValue(input, ImportManifest.class)`。
 4. 调用 Coordinator。成功输出一行 JSON 摘要并将 exitCode=0；失败输出脱敏分类，将 exitCode=1，输入错误也可以细分为2，记录实际约定。
 5. `getExitCode()` 返回保存的值。无论成功失败，都让主函数负责关闭 Spring 上下文与连接池。
+
+### 6.1 新建Runner：下面给出完整文件，按段理解后再写入
+
+目标：`src/main/java/com/quephoto/importing/ImportRunner.java`。先写字段和构造器，再写run，最后写退出码方法。这个例子依赖你已完成第5.3节的Coordinator.run方法。
+
+```java
+package com.quephoto.importing;
+
+import com.aliyun.oss.ClientException;
+import com.aliyun.oss.OSSException;
+import org.springframework.boot.ApplicationArguments;
+import org.springframework.boot.ApplicationRunner;
+import org.springframework.boot.ExitCodeGenerator;
+import org.springframework.context.annotation.Profile;
+import org.springframework.core.env.Environment;
+import org.springframework.dao.DataAccessException;
+import org.springframework.stereotype.Component;
+import org.springframework.web.server.ResponseStatusException;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.json.JsonMapper;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
+@Component
+@Profile("import")
+public class ImportRunner implements ApplicationRunner, ExitCodeGenerator {
+    private static final int MAX_BYTES = 1024 * 1024;
+    private final ImageImportCoordinator coordinator;
+    private final JsonMapper json;
+    private final Environment environment;
+    private int exitCode;
+
+    public ImportRunner(ImageImportCoordinator coordinator, JsonMapper json, Environment environment) {
+        this.coordinator = coordinator;
+        this.json = json;
+        this.environment = environment;
+    }
+
+    @Override
+    public void run(ApplicationArguments args) {
+        try {
+            if (!"none".equalsIgnoreCase(environment.getProperty("spring.main.web-application-type"))) {
+                throw new IllegalArgumentException("导入必须显式指定 --spring.main.web-application-type=none");
+            }
+            String file = environment.getProperty("import.file");
+            if (file == null || file.isBlank()) {
+                throw new IllegalArgumentException("缺少 --import.file=清单路径");
+            }
+            if (!Path.of(file).isAbsolute() || !Files.isRegularFile(Path.of(file))) {
+                throw new IllegalArgumentException("import.file 必须是已有普通文件的绝对路径");
+            }
+            byte[] bytes;
+            try (var input = Files.newInputStream(Path.of(file))) {
+                bytes = input.readNBytes(MAX_BYTES + 1);
+            }
+            if (bytes.length > MAX_BYTES) throw new IllegalArgumentException("清单不能超过 1 MiB");
+            var manifest = json.readValue(bytes, ImportManifest.class);
+            var result = coordinator.run(manifest);
+            System.out.println(json.writeValueAsString(result));
+        } catch (OSSException ex) {
+            fail(3, "OSS 核验失败 code=" + ex.getErrorCode() + " requestId=" + ex.getRequestId());
+        } catch (ClientException ex) {
+            fail(3, "OSS 客户端或网络失败，请检查 endpoint、region 和网络后重试");
+        } catch (ResponseStatusException ex) {
+            fail(2, ex.getStatusCode().value() + " " + ex.getReason());
+        } catch (JacksonException ex) {
+            fail(2, "JSON 结构错误，请核对字段名称、类型及括号");
+        } catch (IOException ex) {
+            fail(2, "清单无法读取，请检查路径和文件权限");
+        } catch (IllegalArgumentException ex) {
+            fail(2, ex.getMessage());
+        } catch (DataAccessException ex) {
+            fail(4, "数据库操作失败，事务已回滚；检查连接、唯一约束或并发冲突");
+        } catch (Exception ex) {
+            fail(1, "导入发生未预期错误，类型=" + ex.getClass().getSimpleName());
+        }
+    }
+
+    private void fail(int code, String message) {
+        exitCode = code;
+        // 不打印 SDK 请求头、凭据、完整异常对象或连接串。
+        System.err.println("IMPORT_FAILED " + message);
+    }
+
+    @Override
+    public int getExitCode() { return exitCode; }
+}
+```
+
+读文件的 `try (...)` 会自动关闭流；最多读取1 MiB加1字节，用最后一个字节判断超限。输入异常、OSS异常和数据库异常在外层分类，事务中的异常不被吞掉。例子约定0成功、2输入/业务错误、3 OSS失败、4数据库失败、1其他错误；配置绑定等启动期异常也应非零退出。输出中不包含凭据或完整SDK请求。
+
+### 6.2 再调整main，并核对终端配置
 
 修改 `D:\Project\QuePhoto_java\src\main\java\com\quephoto\QuePhotoApplication.java`，下列为完整 main 方法，保留已有类注解：
 
@@ -281,9 +655,11 @@ public static void main(String[] args) {
 }
 ```
 
+上面的main片段还需要在文件顶部补入 `org.springframework.context.ConfigurableApplicationContext` 和 `java.util.Arrays` 的import。
+
 `SpringApplication.run` 会执行 Runner 后才返回；`SpringApplication.exit` 汇总 `ExitCodeGenerator` 并关闭上下文。不要在正常 Web 路径无条件 close；也不要在 Runner 里直接 `System.exit(0)`，否则可能来不及释放 SDK、连接池。[Boot 应用退出文档](https://docs.spring.io/spring-boot/reference/features/spring-application.html)
 
-本地注入只读 RAM 配置时避免把秘密写到历史。以下示例保留 Day 03 的数据库/JWT/管理员环境变量；`Get-Credential` 的用户名栏输入 AccessKeyId、密码栏输入 Secret：
+本地注入只读 RAM 配置时避免把秘密写到历史。以下示例要求**当前导入窗口已经配置** Day03 的数据库/JWT/管理员环境变量；`start-local.cmd` 在另一个进程启动的服务不会把变量传回这个窗口。缺少这些配置时，先按 Day03 配置当前窗口，不要输出全部环境变量排错。`Get-Credential` 的用户名栏输入 AccessKeyId、密码栏输入 Secret：
 
 ```powershell
 Set-Location 'D:\Project\QuePhoto_java'
@@ -358,6 +734,140 @@ for (TagRow tag : tags) {
 **为什么：**发布规则是贯穿所有写入口的不变量。“发布接口有检查”不足以防止稍后的图片类型修改破坏封面。
 
 **应看到的结果：**跨作品封面、scene封面、同组标签、已发布封面改scene全部失败且原内容不变；下架后公开详情404。
+
+### 7.1 先写一个最小完整操作：设置封面
+
+**前提：**管理详情的 `AdminPortfolioDtos.Detail` 和 `service.adminDetail(id)` 已按第0.2节补好。下面示范怎样把“需要一个PUT”落到DTO、Controller和Service，不要求你同时写完所有管理接口。
+
+第一步，新建 `src/main/java/com/quephoto/portfolio/dto/CoverRequest.java`，完整文件如下：
+
+```java
+package com.quephoto.portfolio.dto;
+
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Max;
+
+public record CoverRequest(
+        @NotNull @Positive @Max(9007199254740991L) Long imageId
+) {}
+```
+
+`Long` 能表达null；`@NotNull` 不允许缺失或null；`@Positive` 要求正数。JSON中的 `imageId` 对应record中的同名字段，record的读取方法叫 `imageId()`。
+
+第二步，在 `AdminPortfolioController` 的类内追加完整方法，并在文件顶部import `CoverRequest`。现有的 `@PutMapping/@PathVariable/@RequestBody/@Valid/@Min/@Max` 按IDE提示补齐import：
+
+```java
+@PutMapping("/{id}/cover")
+public AdminPortfolioDtos.Detail cover(
+        @PathVariable("id") @Min(1) @Max(9007199254740991L) long id,
+        @Valid @RequestBody CoverRequest request) {
+    return service.setCover(id, request);
+}
+```
+
+第三步，在 `PortfolioService` 类内追加下面的完整方法。顶部import相同的 `CoverRequest`，其余类型已在当前Service中使用：
+
+```java
+@Transactional
+public AdminPortfolioDtos.Detail setCover(long id, CoverRequest request) {
+    PortfolioRow portfolio = mapper.findByIdForUpdate(id);
+    if (portfolio == null) {
+        throw new ResponseStatusException(HttpStatus.NOT_FOUND, "作品不存在");
+    }
+    PortfolioImageRow image = mapper.findImageById(request.imageId());
+    if (image == null) {
+        throw new ResponseStatusException(HttpStatus.NOT_FOUND, "图片不存在");
+    }
+    if (!java.util.Objects.equals(image.getPortfolioId(), id)) {
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "图片不属于当前作品");
+    }
+    if (!"work".equals(image.getImageType())) {
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "封面必须是work图片");
+    }
+    mapper.setCover(id, image.getId(), LocalDateTime.now(ZoneOffset.UTC));
+    return adminDetail(id);
+}
+```
+
+第四步，构建并重启服务，用本人草稿ID和work图片ID发PUT。成功应200、返回详情中的 `coverImageId` 更新；换成其他作品的图片ID应400。这个步骤通过后，再按相同三层结构做图片和标签修改。
+
+### 7.2 另外两个操作怎样拆开写
+
+**图片更新：**先新建完整请求record；下面四个字段必须出现在JSON里，宽高允许显式null。
+
+```java
+package com.quephoto.portfolio.dto;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
+
+public record ImageUpdateRequest(
+        @JsonProperty(required = true) @NotBlank @Pattern(regexp = "work|scene") String imageType,
+        @JsonProperty(required = true) @NotNull Integer sortOrder,
+        @JsonProperty(required = true) Integer width,
+        @JsonProperty(required = true) Integer height
+) {}
+```
+
+在Service中按上面的设封面方法先锁作品、查图片、核对归属。然后复用第3节的宽高判断；只有一边为空或非正数都400。写库前加入这个**类内方法中的局部片段**：
+
+```java
+if ("published".equals(portfolio.getStatus())
+        && java.util.Objects.equals(portfolio.getCoverImageId(), image.getId())
+        && !"work".equals(request.imageType())) {
+    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "已发布封面不能改为scene");
+}
+```
+
+这里 `portfolio`、`image` 是你刚查出的Row，`request` 是方法参数。之后把请求的四个值写入image，再调用Mapper；SQL只更新 `image_type/sort_order/width/height`，WHERE同时限定 `id` 与 `portfolio_id`。作品的 `updated_at` 也要更新。返回管理员图片DTO，不直接返回整个Row。
+
+**标签替换：**新建 `TagReplaceRequest.java`，完整文件：
+
+```java
+package com.quephoto.portfolio.dto;
+
+import jakarta.validation.constraints.*;
+import java.util.List;
+
+public record TagReplaceRequest(
+        @NotNull @Size(max = 100)
+        List<@NotNull @Positive @Max(9007199254740991L) Long> tagIds
+) {}
+```
+
+Service先锁作品，再执行本节前面的标签校验片段。如果你卡在 `tagMapper.findByIds`，在 `TagMapper` 接口增加 `List<TagRow> findByIds(@Param("ids") java.util.Set<Long> ids);`，在其XML内追加：
+
+```xml
+<select id="findByIds" resultType="com.quephoto.tag.TagRow">
+    SELECT id,group_id,name,sort_order FROM tag
+    WHERE id IN
+    <foreach collection="ids" item="id" open="(" separator="," close=")">
+        #{id}
+    </foreach>
+</select>
+```
+
+`TagMapper` 仍在 `com.quephoto.tag` 包；`@Param` 从 `org.apache.ibatis.annotations.Param` 导入。在PortfolioService新增 `private final TagMapper tagMapper` 并加入**现有构造器**赋值，不同时保留两份构造器。顶部import `TagMapper/TagRow/Set/HashSet/List`。
+
+PortfolioMapper还需声明删除关联和插入关联的方法，参数分别叫 `portfolioId` 以及 `portfolioId/groupId/tagId`，用 `@Param` 明确命名。对应XML片段：
+
+```xml
+<delete id="deletePortfolioTags">
+    DELETE FROM portfolio_tag WHERE portfolio_id=#{portfolioId}
+</delete>
+<insert id="insertPortfolioTag">
+    INSERT INTO portfolio_tag(portfolio_id,tag_group_id,tag_id)
+    VALUES(#{portfolioId},#{groupId},#{tagId})
+</insert>
+```
+
+空集合时跳过findByIds，但仍删除旧关联；空数组因此是“清空标签”。非空集合先查完、检查完，再删旧数据；同组两个标签失败后，原标签必须还在。整个过程置于同一个 `@Transactional` 方法中，最后返回 `adminDetail(portfolioId)`。
+
+**这一小节的练习：**参照封面Controller，自己补图片和标签的PUT方法。只负责接参数并调Service，把SQL和业务判断留在Service/Mapper。写完逐条验证，不一次发十个请求再找哪条失败。
+
 
 ## 8. 第七步：走一次真实闭环，再主动制造失败
 

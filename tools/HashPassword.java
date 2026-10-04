@@ -20,6 +20,7 @@ class HashPassword {
         if (raw == null) throw new IllegalStateException("已取消密码输入");
         try {
             String value = new String(raw);
+            if (value.isBlank()) throw new IllegalArgumentException("密码不能全部为空白字符");
             int bytes = value.getBytes(StandardCharsets.UTF_8).length;
             if (bytes < 12 || bytes > 72) throw new IllegalArgumentException("使用12–72字节密码");
             System.out.println(new BCryptPasswordEncoder(12).encode(value));

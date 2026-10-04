@@ -36,4 +36,18 @@ public interface PortfolioMapper {
     );
 
     int insertDraft(PortfolioRow row);
+
+    PortfolioRow findByIdForUpdate(@Param("id") long id);
+
+    PortfolioImageRow findImageByObjectKey(
+            @Param("objectKey") String objectKey);
+
+    PortfolioImageRow findImageById(@Param("id") long id);
+
+    int insertImage(PortfolioImageRow row);
+
+    int setCover(
+            @Param("portfolioId") long portfolioId,
+            @Param("imageId") long imageId,
+            @Param("updatedAt") java.time.LocalDateTime updatedAt);
 }

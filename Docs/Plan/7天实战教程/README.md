@@ -8,15 +8,26 @@
 
 | 天 | 教程 | 当天完成的开发任务 | 学习重点 |
 |---|---|---|---|
-| 1 | [Java 入门与第一个接口](D:/Project/QuePhoto_java/Plan/7天实战教程/Day01_Java入门与第一个接口.md) | 工程、DTO、HTTP 接口、构建 JAR、环境准备 | 类、集合、record、Maven、请求/响应 |
-| 2 | [数据库建模与公开查询](D:/Project/QuePhoto_java/Plan/7天实战教程/Day02_数据库建模与公开查询.md) | 五表迁移、分页、详情、标签树 | SQL、约束、Mapper、Service、DTO、null |
-| 3 | [管理员认证与草稿管理](D:/Project/QuePhoto_java/Plan/7天实战教程/Day03_管理员认证与草稿管理.md) | 登录、JWT、后台查询、草稿创建/编辑 | 依赖注入、认证/授权、参数校验、异常 |
-| 4 | [图片导入与作品发布](D:/Project/QuePhoto_java/Plan/7天实战教程/Day04_图片导入与作品发布.md) | 真实图片登记、封面/标签/排序、发布与下架 | SDK、资源释放、事务、锁、幂等 |
-| 5 | [接口契约与关键测试](D:/Project/QuePhoto_java/Plan/7天实战教程/Day05_接口契约与关键测试.md) | OpenAPI、请求集合、隔离数据库测试 | 测试边界、真实鉴权验证、失败路径 |
-| 6 | [服务器部署与备份恢复](D:/Project/QuePhoto_java/Plan/7天实战教程/Day06_服务器部署与备份恢复.md) | Docker、Nginx、SSH/HTTPS、备份和恢复 | 配置、镜像/容器/数据卷、网络与日志 |
-| 7 | [上线验收与独立维护](D:/Project/QuePhoto_java/Plan/7天实战教程/Day07_上线验收与独立维护.md) | 三套真实内容、回滚、操作手册 | 独立修改、故障定位、运维与学习复盘 |
+| 1 | [Java 入门与第一个接口](D:/Project/QuePhoto_java/Docs/Plan/7天实战教程/Day01_Java入门与第一个接口.md) | 工程、DTO、HTTP 接口、构建 JAR、环境准备 | 类、集合、record、Maven、请求/响应 |
+| 2 | [数据库建模与公开查询](D:/Project/QuePhoto_java/Docs/Plan/7天实战教程/Day02_数据库建模与公开查询.md) | 五表迁移、分页、详情、标签树 | SQL、约束、Mapper、Service、DTO、null |
+| 3 | [管理员认证与草稿管理](D:/Project/QuePhoto_java/Docs/Plan/7天实战教程/Day03_管理员认证与草稿管理.md) | 登录、JWT、后台查询、草稿创建/编辑 | 依赖注入、认证/授权、参数校验、异常 |
+| 4 | [图片导入与作品发布](D:/Project/QuePhoto_java/Docs/Plan/7天实战教程/Day04_图片导入与作品发布.md) | 真实图片登记、封面/标签/排序、发布与下架 | SDK、资源释放、事务、锁、幂等 |
+| 5 | [接口契约与关键测试](D:/Project/QuePhoto_java/Docs/Plan/7天实战教程/Day05_接口契约与关键测试.md) | OpenAPI、请求集合、隔离数据库测试 | 测试边界、真实鉴权验证、失败路径 |
+| 6 | [服务器部署与备份恢复](D:/Project/QuePhoto_java/Docs/Plan/7天实战教程/Day06_服务器部署与备份恢复.md) | Docker、Nginx、SSH/HTTPS、备份和恢复 | 配置、镜像/容器/数据卷、网络与日志 |
+| 7 | [上线验收与独立维护](D:/Project/QuePhoto_java/Docs/Plan/7天实战教程/Day07_上线验收与独立维护.md) | 三套真实内容、回滚、操作手册 | 独立修改、故障定位、运维与学习复盘 |
 
 ## 怎样用，才能既学会又做完
+
+**从第4天继续读的方式（2026-10-04更新）：**第4～7天现在都从“第0节任务拆解”开始，先看目标文件、动手顺序和每一步的检查点，再进入正文。新增内容是学习任务说明，代码保留在文档中供你自己实现；不代表功能、测试或部署已经完成。
+
+| 当天 | 先看什么 | 重点代码或操作示例 |
+|---|---|---|
+| Day04 | 第0节确认当前缺项，再按A～G推进 | 第3.1节清单校验；第5.1～5.3节Mapper/事务/调用；第6.1节完整Runner；第7.1～7.2节管理修改 |
+| Day05 | 第0节按文件安排测试与契约任务 | 完整校验单元测试；第5.1节最小完整OpenAPI；第7.1节真实登录与发布失败测试 |
+| Day06 | 第0节分清Windows与Linux文件 | 第7.1节业务请求检查；第10.1节恢复SQL、备份脚本解释与记录模板 |
+| Day07 | 第0节区分运营、修缺陷、回滚与手册 | 第3.1节六字段完整PUT；第3.2节按现象定位代码；第9.1节操作手册模板 |
+
+先读解释，尝试自己写；遇到具体方法不会写时，再对照紧接着的完整示例或片段。不要一次复制整天内容后才启动。方法之间的依赖、片段放置位置、要补的import和构造器都按小节说明处理。
 
 每一节按这个顺序执行：
 
@@ -58,8 +69,8 @@
 
 ## 原计划和查阅资料
 
-- [7 天 MVP 总计划](D:/Project/QuePhoto_java/Plan/QuePhoto_Java_7天MVP计划书.md)：为什么选这个范围，以及工期取舍。
-- [数据库与 API 实施基线](D:/Project/QuePhoto_java/Plan/QuePhoto_Java_数据库与API实施基线.md)：业务规则与原设计的冲突处理。
-- [每日任务与验收总表](D:/Project/QuePhoto_java/Plan/QuePhoto_Java_每日任务与上线验收.md)：全周进度和最终验收编号。
+- [7 天 MVP 总计划](D:/Project/QuePhoto_java/Docs/Plan/QuePhoto_Java_7天MVP计划书.md)：为什么选这个范围，以及工期取舍。
+- [数据库与 API 实施基线](D:/Project/QuePhoto_java/Docs/Plan/QuePhoto_Java_数据库与API实施基线.md)：业务规则与原设计的冲突处理。
+- [每日任务与验收总表](D:/Project/QuePhoto_java/Docs/Plan/QuePhoto_Java_每日任务与上线验收.md)：全周进度和最终验收编号。
 
 教程细化了原基线中未固定的实现细节，例如各 PUT 的返回体、配置文件名和测试入口；以各天说明保持一致。如果实施时发现必须变更契约，先同步教程、OpenAPI 和测试，不只改某一个调用处。

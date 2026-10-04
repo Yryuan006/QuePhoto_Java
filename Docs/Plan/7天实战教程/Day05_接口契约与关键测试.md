@@ -4,7 +4,115 @@
 
 先决条件：Day 2 的数据库与公开查询、Day 3 的真实登录鉴权、Day 4 的导入与发布链路均能本地运行。未完成就先补齐，不能靠修改测试期望把缺失功能变成通过。
 
-导航：[教程目录](D:/Project/QuePhoto_java/Plan/7天实战教程/README.md) · [上一天](D:/Project/QuePhoto_java/Plan/7天实战教程/Day04_图片导入与作品发布.md) · [下一天](D:/Project/QuePhoto_java/Plan/7天实战教程/Day06_服务器部署与备份恢复.md)
+导航：[教程目录](D:/Project/QuePhoto_java/Docs/Plan/7天实战教程/README.md) · [上一天](D:/Project/QuePhoto_java/Docs/Plan/7天实战教程/Day04_图片导入与作品发布.md) · [下一天](D:/Project/QuePhoto_java/Docs/Plan/7天实战教程/Day06_服务器部署与备份恢复.md)
+
+## 0. 今天具体写哪些文件，按什么顺序写
+
+**本篇是第5天待你完成的任务说明；下面的测试和契约示例供你逐段写入自己的工程，不表示已经生成文件或测试通过。** 今天的重点是学会用确定的输入判断输出是否正确。
+
+| 顺序 | 目标文件 | 你具体要写什么 | 做到什么程度再继续 |
+|---|---|---|---|
+| A | `src/test/java/com/quephoto/importing/ImageImportCoordinatorTest.java` | 清单校验的单元测试 | 不连接MySQL和OSS也能测五种输入 |
+| B | `src/test/resources/application-test.yml` | 专用测试库连接；凭据从TEST_DB变量取 | 确认只有quephoto_test权限，未激活local/prod |
+| C | `src/test/java/com/quephoto/PortfolioApiTest.java` | 第7节的完整测试，再加入真实登录和发布失败用例 | 不关闭安全过滤器；能断言状态码和数据 |
+| D | `Docs/requests.http` | 把第4节请求逐个保存，补齐管理分页/标签树/图片更新 | 每个变量知道从哪个响应取得 |
+| E | `Docs/openapi.yaml` | 先写一个可校验的端点，再补全12个操作 | 每个ref有定义，响应与DTO一致 |
+| F | `Docs/evidence/day05.md` | 测试命令、结果和未覆盖项 | 成功/失败/未做明确区分 |
+
+**先学会读一个测试：**准备输入（Arrange）→ 执行一次操作（Act）→ 比较实际与预期（Assert）。测试名字写业务规则，例如“无封面不能发布”，不要只写 `test1`。
+
+### 0.1 从一个不需要数据库的完整测试类开始
+
+新建 `src/test/java/com/quephoto/importing/ImageImportCoordinatorTest.java`。以下构造器对应 Day04 第5.3节接好依赖之后的 Coordinator；如果你尚未完成该节，先补齐依赖，不通过删除断言让测试假通过。
+
+```java
+package com.quephoto.importing;
+
+import com.quephoto.oss.OssImportProperties;
+import com.quephoto.oss.OssObjectVerifier;
+import jakarta.validation.Validation;
+import jakarta.validation.ValidatorFactory;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Test;
+import java.util.List;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.mock;
+
+class ImageImportCoordinatorTest {
+    private static final ValidatorFactory FACTORY = Validation.buildDefaultValidatorFactory();
+    // 没有启动Spring；下面的占位配置只用于构造校验对象，不会连接OSS。
+    private final ImageImportCoordinator coordinator = new ImageImportCoordinator(
+            FACTORY.getValidator(),
+            new OssImportProperties("test", "https://example.com", "test", "photos/", "unused", "unused"),
+            mock(OssObjectVerifier.class), mock(ImageImportService.class));
+
+    @AfterAll
+    static void closeFactory() { FACTORY.close(); }
+
+    private ImportManifest.ImageItem image(String key, String type, Integer width, Integer height) {
+        return new ImportManifest.ImageItem(key, type, 10, width, height);
+    }
+
+    @Test
+    void unknownDimensionsAndSecondImageCoverAreAllowed() {
+        var input = new ImportManifest(1L, List.of(
+                image("photos/scene.jpg", "scene", null, null),
+                image("photos/work.jpg", "work", null, null)), "photos/work.jpg");
+        assertDoesNotThrow(() -> coordinator.validateManifest(input));
+    }
+
+    @Test
+    void oneMissingDimensionIsRejected() {
+        var input = new ImportManifest(1L,
+                List.of(image("photos/a.jpg", "work", 800, null)), "photos/a.jpg");
+        assertThrows(IllegalArgumentException.class, () -> coordinator.validateManifest(input));
+    }
+
+    @Test
+    void duplicateKeyIsRejected() {
+        var item = image("photos/a.jpg", "work", null, null);
+        var input = new ImportManifest(1L, List.of(item, item), "photos/a.jpg");
+        assertThrows(IllegalArgumentException.class, () -> coordinator.validateManifest(input));
+    }
+
+    @Test
+    void dotSegmentIsRejected() {
+        var input = new ImportManifest(1L,
+                List.of(image("photos/../a.jpg", "work", null, null)), "photos/../a.jpg");
+        assertThrows(IllegalArgumentException.class, () -> coordinator.validateManifest(input));
+    }
+
+    @Test
+    void sceneCannotBeCover() {
+        var input = new ImportManifest(1L,
+                List.of(image("photos/a.jpg", "scene", null, null)), "photos/a.jpg");
+        assertThrows(IllegalArgumentException.class, () -> coordinator.validateManifest(input));
+    }
+}
+```
+
+`assertThrows` 的意思是“这个错误输入应该被拒绝”；如果程序没有抛异常，测试反而失败。`() -> ...` 是把待执行动作交给断言。`mock(...)` 在这里替代校验阶段不会调用的外部依赖，不能据此宣称OSS核验或数据库事务正常。
+
+写完只跑这个类：
+
+```powershell
+.\mvnw.cmd '-Dtest=ImageImportCoordinatorTest' test
+```
+
+预期5个测试通过，且不要求数据库密码。若提示不存在这个测试类，检查文件是不是保存在 `src/test/java`，不要误放到 `src/main/java`。接着再做第6、7节的真实数据库测试。
+
+### 0.2 写请求集合前先准备变量
+
+| 变量 | 从哪里取得 | 常见错误 |
+|---|---|---|
+| `baseUrl` | 本地 `http://127.0.0.1:8080`，服务器隧道用18080 | 把图片域名当API域名 |
+| `token` | 登录响应中的accessToken | 把整个登录JSON粘进去，或重复写Bearer |
+| `portfolioId` | 创建草稿返回的id | 照抄示例1001 |
+| `imageId` | 导入后GET管理详情的images[].id | 把作品ID当图片ID |
+| `tagId` | GET标签树中某个二级标签的id | 使用标签组ID |
+
+请求文件用 `{{变量名}}` 引用值。用户名、密码、token只写进客户端的私有环境，具体操作按你使用的IDE HTTP Client或API工具完成；不要把真实值写进可提交的 `.http` 文件。
+
 
 ## 1. 四小时怎么用
 
@@ -217,6 +325,69 @@ components:
 
 用 IDE 的 YAML/OpenAPI 校验检查缩进、重复键、悬空 `$ref`，再对照实际响应。文档语法有效不代表接口实现正确，两项都要查。
 
+### 5.1 不知道从哪里写时，先保存这个无悬空引用的最小契约
+
+下面是**只含登录接口的完整OpenAPI文件**，用于练习语法；它不是当天最终的12接口交付。你先保存到 `Docs/openapi.yaml`，通过IDE校验，再在同一份文件内扩展。
+
+```yaml
+openapi: 3.0.3
+info:
+  title: QuePhoto API 学习稿
+  version: 0.1.0
+servers:
+  - url: http://127.0.0.1:8080
+paths:
+  /api/auth/login:
+    post:
+      summary: 管理员登录
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          description: 用户名或密码错误
+components:
+  schemas:
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+    LoginResponse:
+      type: object
+      required: [accessToken, expiresAt]
+      properties:
+        accessToken:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+```
+
+按这个顺序扩展：
+
+1. 看 `AuthDtos`，补用户名/密码限制及400、401、429错误结构；密码72字节规则用文字说明，不能简单写成72字符。
+2. 加公开列表：先看 `PageResponse` 与 `PublicPortfolioDtos.ListItem`，逐项写items/page/pageSize/totalCount。
+3. 加公开详情和标签树：数组的元素单独建schema，`$ref`指向它。
+4. 加管理查询和写操作：定义Bearer安全方案，只在受保护操作上引用；公开接口和登录保持可匿名调用。
+5. 完整写六字段PUT请求：required表示字段必须出现；nullable表示允许显式null，两者能同时成立。
+6. 对照第3节表格数出12个method+path；再实际发送请求核对响应。一个路径有GET和PUT时算两个操作。
+
+这一步是在写别人能够照着调用的说明书。不要把Java类名当schema内容，也不要写一个不存在的成功返回体。[OpenAPI 3.0.3规范](https://spec.openapis.org/oas/v3.0.3.html)
+
+
 ## 6. 自动化测试准备：永远先隔离数据库
 
 ### 加测试依赖
@@ -382,6 +553,68 @@ Set-Location 'D:\Project\QuePhoto_java'
 ```
 
 预期四个测试通过。失败时查看 `target/surefire-reports`，先区分“应用启动失败”还是“断言失败”；不要第一反应就是改 expected 值。
+
+### 7.1 在同一个测试类里补一个“真实登录→业务拒绝”的方法
+
+第7节的类证明了匿名拒绝和公开隔离，但尚未证明正确的账号能够登录。打开同一个 `PortfolioApiTest.java`，先补入以下import和字段：
+
+```java
+import tools.jackson.databind.json.JsonMapper;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+```
+
+字段放在类中，与 `mvc`、`jdbc` 平级：
+
+```java
+@Autowired JsonMapper json;
+```
+
+再把这个**完整测试方法**放进类的最后一个 `}` 之前：
+
+```java
+@Test
+void realLoginCanReadDraftButCannotPublishWithoutCover() throws Exception {
+    String loginBody = mvc.perform(post("/api/auth/login")
+            .contentType("application/json")
+            .content("{\"username\":\"test-admin\",\"password\":\"test-only-password\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.expiresAt").exists())
+        .andReturn().getResponse().getContentAsString();
+
+    String token = json.readTree(loginBody).get("accessToken").asText();
+    String authorization = "Bearer " + token;
+
+    mvc.perform(get("/api/admin/portfolios/9103").header("Authorization", authorization))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("draft"));
+
+    mvc.perform(put("/api/admin/portfolios/9103")
+            .header("Authorization", authorization)
+            .contentType("application/json")
+            .content("""
+                {"title":"draft-hidden","description":null,"location":null,
+                 "shotAt":null,"shotTimePrecision":null,"status":"published"}
+                """))
+        .andExpect(status().isBadRequest());
+
+    assertEquals("draft", jdbc.queryForObject(
+            "SELECT status FROM portfolio WHERE id=9103", String.class));
+}
+```
+
+为什么用9103？它由本类 `fixtures()` 创建，明确是没有图片和封面的草稿，所以“发布必须失败”是确定的。为什么还查数据库？只断言400不能说明数据未被误改。这个用例验证发布条件和拒绝后的状态；要证明“插入一半后整批回滚”，还要做第8节的导入失败测试。
+
+**你接下来按同样结构写两个方法：**
+
+1. 已发布作品9101的封面9201改成scene：请求400；查询9201仍为work。
+2. 9101设9202为封面：9202属于9102，请求400；查询9101的cover_image_id仍为9201。
+
+每个方法先写请求，再写状态码断言，最后写数据库断言。字段名与 Day04 DTO 一致。不要直接复制上面的方法而只改测试名。
+
+正确登录会消耗真实登录限流次数。当前工程是**进程内全部登录尝试合计每分钟5次**；当你扩展到多个用例时，可在同一测试类 `@BeforeAll` 登录一次、保存token，结合 `@TestInstance(PER_CLASS)`，或隔离测试上下文。不要把偶发429误当业务断言失败，更不要为通过测试删除生产限流逻辑。
+
 
 ## 8. 再补这些关键场景，才算覆盖本周风险
 

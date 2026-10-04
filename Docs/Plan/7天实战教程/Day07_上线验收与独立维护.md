@@ -6,6 +6,35 @@
 
 本教程只安排实施任务，没有代表你执行上线。项目代码根继续为 `D:\Project\QuePhoto_java`；服务器部署根为 `/opt/quephoto`。原小程序继续使用原数据路径，本轮不切换、不提审，也不会自动同步新后端的数据。
 
+## 0. 最后一天具体做什么，哪些需要写代码
+
+**今天的说明仍是给你自己执行的任务。下面提供请求代码、检查步骤和记录模板；“预期200”不是已经上线成功的证明。**
+
+| 顺序 | 你亲手做什么 | 要写/改的内容 | 完成依据 |
+|---|---|---|---|
+| A | 根据前六天证据列缺项 | `Docs/acceptance-day07.md` 中先填未做项 | 不用“基本完成”替代具体状态 |
+| B | 维护至少三个真实作品 | 实际请求JSON、私有导入清单；不是新增Java模块 | 一个作品做过发布→编辑→下架→再发布 |
+| C | 发现问题时只修一个可复现缺陷 | 对应Java方法/SQL以及一条针对性测试 | 先复现，再修复，原场景通过 |
+| D | 按第6节演练应用回滚 | 镜像版本配置与记录，不随意回退数据库 | 同一作品在候选版和基线版均可读取 |
+| E | 写操作手册并复盘 | `Docs/operations.md` 和学习待办 | 下一次自己能按步骤维护 |
+
+如果没有发现缺陷，今天不必为了“每天写Java”新增功能。把现有程序用对、说明白，能定位一次错误，就是今天的学习目标。先完成P0，再决定第二周做什么。
+
+### 0.1 完成一项任务时要留下什么
+
+用同一格式写：“操作 → 预期 → 实际 → 证据”。例如：
+
+```text
+操作：把作品（填实际ID）的status改为draft。
+预期：管理PUT为200；随后匿名GET公开详情为404。
+实际：待自己操作后填写。
+证据：记录时间、请求路径、状态码；不保存Authorization和密码。
+若失败：实际状态码、去凭据后的响应、下一步检查的文件/日志。
+```
+
+服务器ID以服务器响应为准。不要把本机的1001复制到服务器清单后就直接导入；先确认服务器这件草稿的标题和ID。
+
+
 ## 1. 用证据决定今天先做什么（20 分钟）
 
 打开 Day 05、Day 06 记录，逐项填表。不要先写“基本完成”，再倒推证据。
@@ -87,6 +116,90 @@ sudo docker compose run --rm --no-deps importer
 预期证据：至少三个真实作品可通过公开 API 查询，其中一个作品完成过“发布→修改→下架→重新发布”；使用正常 API 和离线导入完成全部业务维护，没有手写 INSERT/UPDATE 绕过 Service。
 
 如果标签树为空：检查 Day 05 的 `V2__initial_tag_catalog.sql` 是否已确认并由 Flyway 执行；使用 API 返回的实际 ID。标签写 API 属于延期范围，不能临时暴露不受保护的管理接口。真实作品可暂不带标签，但初始目录及标签规则仍须验证，不能把本地样例作品一起灌入生产。
+
+### 3.1 “先GET再完整PUT”到底怎么写
+
+执行位置：**Windows PowerShell 5.1，请求窗口，SSH隧道已建立。** 下面直接给可逐段执行的代码；先阅读、替换真实值，再自己发请求，不需要新建Controller或新的发布接口。
+
+第一段只登录。`$headers` 保存在当前终端，换窗口需要重新准备；不要在截图或日志里输出它。
+
+```powershell
+$baseUrl = 'http://127.0.0.1:18080'
+$username = Read-Host '后台管理员用户名'
+$secret = Read-Host '后台管理员密码' -AsSecureString
+$loginJson = @{
+    username = $username
+    password = [System.Net.NetworkCredential]::new('', $secret).Password
+} | ConvertTo-Json
+$login = Invoke-RestMethod "$baseUrl/api/auth/login" -Method Post -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($loginJson))
+$headers = @{ Authorization = "Bearer $($login.accessToken)" }
+$loginJson = $null
+$secret = $null
+```
+
+第二段取当前详情，只挑PUT接受的六个字段。**先使用已完成真实图片导入、封面合法的作品**，不要拿无封面草稿验证成功发布。
+
+```powershell
+$portfolioId = [long](Read-Host '本次维护的服务器作品ID')
+$detail = Invoke-RestMethod "$baseUrl/api/admin/portfolios/$portfolioId" -Headers $headers
+$detail | Select-Object id, title, status, coverImageId
+
+$update = @{
+    title = $detail.title
+    description = $detail.description
+    location = $detail.location
+    shotAt = $detail.shotAt
+    shotTimePrecision = $detail.shotTimePrecision
+    status = 'published'
+}
+$body = [Text.Encoding]::UTF8.GetBytes(($update | ConvertTo-Json))
+$saved = Invoke-RestMethod "$baseUrl/api/admin/portfolios/$portfolioId" -Method Put -Headers $headers -ContentType 'application/json; charset=utf-8' -Body $body
+$saved | Select-Object id, title, status
+$public = Invoke-RestMethod "$baseUrl/api/portfolios/$portfolioId"
+$public | Select-Object id, title, coverImageUrl
+```
+
+解释：`$detail` 包含服务器当前字段；`$update` 是新的请求体，只带允许编辑的属性。`ConvertTo-Json` 把PowerShell对象转为JSON，UTF8编码保证中文传输正确。`$null` 会成为JSON的null，不是字符串 `"null"`。
+
+第三段是下架。重新GET避免使用前一段之后已被修改的旧字段，再构造完整PUT；不要只发送 `{"status":"draft"}`。
+
+```powershell
+$detail = Invoke-RestMethod "$baseUrl/api/admin/portfolios/$portfolioId" -Headers $headers
+$update = @{
+    title = $detail.title
+    description = $detail.description
+    location = $detail.location
+    shotAt = $detail.shotAt
+    shotTimePrecision = $detail.shotTimePrecision
+    status = 'draft'
+}
+$body = [Text.Encoding]::UTF8.GetBytes(($update | ConvertTo-Json))
+Invoke-RestMethod "$baseUrl/api/admin/portfolios/$portfolioId" -Method Put -Headers $headers -ContentType 'application/json; charset=utf-8' -Body $body | Select-Object id, status
+
+try {
+    Invoke-WebRequest "$baseUrl/api/portfolios/$portfolioId" -UseBasicParsing | Out-Null
+    throw '下架后仍能公开读取，检查status过滤'
+} catch {
+    if ($null -eq $_.Exception.Response -or [int]$_.Exception.Response.StatusCode -ne 404) { throw }
+    '通过：下架后的公开详情返回404'
+}
+```
+
+重新发布时，重复第二段并保持 `status='published'`。编辑描述时，也重新GET六个字段，只修改 `description`，其他值保持当前值。每次更新后读回检查，并比较图片ID数量，避免误以为“重新发布需要再导入一遍图片”。
+
+### 3.2 接口失败时怎样定位到代码
+
+| 现象 | 先检查 | 具体到文件/方法 |
+|---|---|---|
+| 管理请求401 | token是否过期、是否对应当前服务 | SecurityConfig、JwtConfig |
+| 发布400且提示无封面 | 管理详情的coverImageId是否为空 | PortfolioService的元数据更新/发布检查 |
+| 缺字段400 | PUT是否包含六个字段，可空项是否显式null | PortfolioWriteRequest |
+| 公开草稿仍200 | SQL是否漏了published条件 | PortfolioMapper.xml的公开详情查询 |
+| 图片URL正确但打不开 | 实际Key、图片域名和OSS权限 | OSS对象及ImageUrlService |
+| 502 | 应用容器是否就绪、Nginx能否访问 | app日志、nginx.conf、容器网络 |
+
+一次只沿一条现象追踪：请求路径 → Controller → Service → Mapper SQL。能定位到具体方法后，再进入第5节的缺陷修复流程。
+
 
 ## 4. 完成 P0 验收矩阵（25 分钟）
 
@@ -329,6 +442,28 @@ ORDER BY CASE image_type WHEN 'work' THEN 0 ELSE 1 END, sort_order, id;
 ```
 
 RPO 24 小时、RTO 2 小时是初始运行目标，不是承诺。填入真实恢复耗时；备份只在服务器本盘时，服务器损坏仍可能丢失全部副本。更频繁录入内容后应提高备份频率。
+
+### 9.1 不知道操作手册怎么落笔时，用这个模板
+
+你新建或编辑 `Docs/operations.md`，把下面每一项的“待填写”换成自己验证过的信息。不填密码、私钥、完整token或数据库备份内容。
+
+```text
+运行版本：待填写应用镜像标签和ID、Schema版本、验收时间。
+访问入口：待填写SSH主机别名、隧道命令、实际base URL。
+日常启动/检查：待填写compose所在目录、ps和logs命令。
+新增作品：登录→创建草稿→记录服务器ID→上传OSS→清单导入→封面/标签→发布→公开检查。
+编辑/下架：GET详情→六字段PUT→再GET核对；下架后公开应404。
+最近成功备份：待填写文件名、时间和SHA256。
+最近恢复演练：待填写演练库、耗时、数量核对和API结果。
+发版/回滚：待填写当前镜像、上版镜像、备份步骤、兼容性判断和切换后检查。
+故障定位：待填写本次真实遇到的一个故障及最短排查步骤。
+配置位置：待填写秘密文件所在目录和负责人，不写内容。
+已知边界：待填写未完成的HTTPS/前端适配等事项。
+下一次维护前检查：待填写备份、版本、测试、磁盘和访问入口。
+```
+
+手册是否够具体的判断：关闭教程，只看手册，你能否说出“打开哪个终端、进入哪个目录、运行哪个命令、看哪一项输出”？如果只能写“部署一下”“备份一下”，就回到对应天补上命令和预期。
+
 
 ## 10. 最终交付与下一周安排
 
